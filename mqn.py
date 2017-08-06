@@ -75,7 +75,6 @@ class Mqn(TaskBarIcon):
         else: # given code is unknown
             self.set_status("connection refused (reason unknown)")
         if r == 0:
-            print("Connected.")
             subs = self.config['topic']
             for s in subs.iterkeys():
                 self.client.subscribe(s, subs[s].get('qos', 0))
