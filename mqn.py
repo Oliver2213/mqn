@@ -3,6 +3,7 @@
 
 import json
 import os
+from socket import gethostname
 import webbrowser
 import wx
 from wx import App
@@ -20,6 +21,30 @@ class Mqn(TaskBarIcon):
         super(Mqn, self).__init__()
         self.icon_name = icon_name
         self.SetIcon(wx.NullIcon, self.icon_name)
+        self.setup_config()
+        self.client = client.Client()
+        if self.config['mqtt'].get('username', None) != None:
+            if self.config['mqtt'].get('password', None) == None: # no password, just a username
+                self.client.username_pw_set(self.config['mqtt']['username'])
+            else: # username and pw
+                self.client.username_pw_set(self.config['mqtt']['username'], self.config['mqtt']['password'])
+        if self.config['mqtt']['ssl'] == True: # ssl is enabled for this broker connection
+            tls = {}
+            if self.config['mqtt']['ca_certs'].lower() == "auto":
+                tls['ca_certs'] = certifi.where()
+            if self.config['mqtt'].get('certfile', None) != None:
+                tls['certfile'] = self.config['mqtt']['certfile']
+            if self.config['mqtt'].get('keyfile', None) != None:
+                tls['keyfile'] = self.config['mqtt']['keyfile']
+            self.client.tls_set(**tls)
+        for sub in self.config['topic'].iterkeys():
+            self.client.message_callback_add(sub, self.on_notification)
+        self.client.on_connect = self.on_connect
+        self.client.on_disconnect = self.on_disconnect
+        self.client.connect(self.config['mqtt']['host'], self.config['mqtt']['port'], self.config['mqtt']['keepalive'])
+        self.client.loop_start()
+
+    def setup_config(self):
         self.user_config, self.config_file = utils.get_config()
         # config checks...
         if self.user_config == None:
@@ -43,27 +68,6 @@ class Mqn(TaskBarIcon):
             m.ShowModal()
             self.on_exit()
             return
-        self.client = client.Client()
-        if self.config['mqtt'].get('username', None) != None:
-            if self.config['mqtt'].get('password', None) == None: # no password, just a username
-                self.client.username_pw_set(self.config['mqtt']['username'])
-            else: # username and pw
-                self.client.username_pw_set(self.config['mqtt']['username'], self.config['mqtt']['password'])
-        if self.config['mqtt']['ssl'] == True: # ssl is enabled for this broker connection
-            tls = {}
-            if self.config['mqtt']['ca_certs'].lower() == "auto":
-                tls['ca_certs'] = certifi.where()
-            if self.config['mqtt'].get('certfile', None) != None:
-                tls['certfile'] = self.config['mqtt']['certfile']
-            if self.config['mqtt'].get('keyfile', None) != None:
-                tls['keyfile'] = self.config['mqtt']['keyfile']
-            self.client.tls_set(**tls)
-        for sub in self.config['topic'].iterkeys():
-            self.client.message_callback_add(sub, self.on_notification)
-        self.client.on_connect = self.on_connect
-        self.client.on_disconnect = self.on_disconnect
-        self.client.connect(self.config['mqtt']['host'], self.config['mqtt']['port'], self.config['mqtt']['keepalive'])
-        self.client.loop_start()
 
     def on_connect(self, c, u, f, r):
         if r in connect_codes.keys():
@@ -84,7 +88,6 @@ class Mqn(TaskBarIcon):
             self.set_status("disconnected unexpectedly, reconnecting soon")
         else:
             self.set_status("disconnected")
-            print("Disconnected.")
 
     def on_notification(self, c, u, msg):
         try:
@@ -97,6 +100,7 @@ class Mqn(TaskBarIcon):
     def CreatePopupMenu(self):
         menu = wx.Menu()
         utils.create_menu_item(menu, "open configuration file", self.open_config)
+        utils.create_menu_item(menu, "&reload configuration file", self.reload_config)
         utils.create_menu_item(menu, "open mqn &website", self.open_website)
         utils.create_menu_item(menu, "e&xit", self.on_exit)
         return menu
@@ -115,6 +119,11 @@ If status is an empty string (which is the default), then set the name of the ic
 
     def open_config(self, event=None):
         os.startfile(self.config_file)
+
+    def reload_config(self, event=None):
+        # this is pretty useless until I make the program reconnect after a reload
+        self.setup_config()
+        wx.MessageDialog(parent=None, caption="config reloaded", message="The configuration file has been reloaded.").ShowModal()
 
     def on_exit(self, event=None):
         wx.CallAfter(self.Destroy)
