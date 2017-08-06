@@ -60,6 +60,8 @@ class Mqn(TaskBarIcon):
             self.mqtt_disconnect()
         if reload:
             self.client.reinitialise() # is it me or is that misspelled 
+            self.client.on_connect = self.on_connect
+            self.client.on_disconnect = self.on_disconnect
         if self.config['mqtt'].get('username', None) != None:
             if self.config['mqtt'].get('password', None) == None: # no password, just a username
                 self.client.username_pw_set(self.config['mqtt']['username'])
@@ -156,9 +158,9 @@ If status is an empty string (which is the default), then set the name of the ic
         os.startfile(self.config_file)
 
     def reload_config(self, event=None):
-        # this is pretty useless until I make the program reconnect after a reload
         self.setup_config()
-        wx.MessageDialog(parent=None, caption="config reloaded", message="The configuration file has been reloaded.").ShowModal()
+        self.mqtt_connect(reload=True) # disconnect if necessary, stop the mqtt event loop, reset settings from config, and reconnect again
+        wx.MessageDialog(parent=None, caption="config reloaded", message="The configuration file has been reloaded and the connection to your configured mqtt broker is being reestablished according to the updated config.").ShowModal()
 
     def on_exit(self, event=None):
         self.mqtt_disconnect() # will only disconnect if it needs doing, and stops mqtt's loop as well if necessary
@@ -172,8 +174,8 @@ def main():
         app.MainLoop()
     except Exception as e:
         #print("""Unhandled exception:\n{}""".format(str(e)))
-        raise
-        wx.MessageDialog(parent=None, caption="Error!", message="""{}: {}""".format(e.__class__, e)).ShowModal()
+        #raise
+        wx.MessageDialog(parent=None, caption="Error!", message="""{}: {}""".format(type(e).__name__, e)).ShowModal()
         return
     finally:
         # gracefully disconnect, even if an exception is thrown
