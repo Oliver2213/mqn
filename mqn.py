@@ -21,13 +21,13 @@ class Mqn(TaskBarIcon):
         self.icon_name = icon_name
         self.SetIcon(wx.NullIcon, self.icon_name)
         self.user_config, self.config_file = utils.get_config()
-        self.config = utils.combine_config(self.user_config, default_config)
         # config checks...
-        if self.config == None:
+        if self.user_config == None:
             m = wx.MessageDialog(parent=None, caption="No configuration file found", message="No configuration could be found for Mqn. Please create one and run this program again.")
             m.ShowModal()
             self.on_exit()
             return
+        self.config = utils.combine_config(self.user_config, default_config)
         if self.config.get('mqtt', None) == None:
             m = wx.MessageDialog(parent=None, caption="Missing mqtt options", message="There is no 'mqtt' section in the configuration file.\nPlease specify one with your desired options and run this program again.")
             m.ShowModal()
