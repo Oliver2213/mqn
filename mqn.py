@@ -95,7 +95,7 @@ class Mqn(TaskBarIcon):
         if r > 0:
             self.set_status("disconnected unexpectedly, reconnecting soon")
         else:
-            self.mqtt_connected = True
+            self.mqtt_connected = False
             self.set_status("disconnected")
 
     def on_notification(self, c, u, msg):
