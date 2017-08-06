@@ -54,8 +54,12 @@ class Mqn(TaskBarIcon):
             self.on_exit()
             return
 
-    def mqtt_connect(self):
+    def mqtt_connect(self, reload=False, start_loop=True):
         """Establishes a connection to the mqtt broker specified in config, sets up subscription message handlers for all the specified topics, and starts the event processing loop for mqtt."""
+        if self.mqtt_connected or self.mqtt_loop_running:
+            self.mqtt_disconnect()
+        if reload:
+            self.client.reinitialise() # is it me or is that misspelled 
         if self.config['mqtt'].get('username', None) != None:
             if self.config['mqtt'].get('password', None) == None: # no password, just a username
                 self.client.username_pw_set(self.config['mqtt']['username'])
@@ -73,15 +77,32 @@ class Mqn(TaskBarIcon):
         for sub in self.config['topic'].iterkeys():
             self.client.message_callback_add(sub, self.on_notification)
         self.client.connect(self.config['mqtt']['host'], self.config['mqtt']['port'], self.config['mqtt']['keepalive'])
-        self.client.loop_start()
+        if start_loop:
+            self.client.loop_start()
+            self.mqtt_loop_running = True
 
+    def mqtt_loop_check(self):
+        """Check to see if the mqtt event loop is alive, and set the value that reflects this on the class instance."""
+        # maybe make this a property so checking self.mqtt_loop_running will run this?
+        if getattr(self.client, '_thread', False) == False: # the thread doesn't exist
+            self.mqtt_loop_running = False
+        else: # a thread does exist, determine it's running status
+            self.mqtt_loop_running = self.client._thread.is_alive()
+
+    def mqtt_disconnect(self):
+        """Disconnect from the mqtt broker if we're connected, and stop the mqtt event loop if it's running."""
+        if self.mqtt_connected:
+            self.client.disconnect()
+        self.mqtt_loop_check()
+        if self.mqtt_loop_running:
+            self.client.loop_stop()
+            self.mqtt_loop_running = False
 
     def on_connect(self, c, u, f, r):
         if r in connect_codes.keys():
             self.set_status(connect_codes[r])
             if r > 0:
-                self.client.disconnect()
-                self.client.loop_stop()
+                self.mqtt_disconnect()
                 self.ShowBalloon("Connection failed to {}".format(self.config['mqtt']['host']), connect_codes[r])
         else: # given code is unknown
             self.set_status("connection refused (reason unknown)")
@@ -90,6 +111,7 @@ class Mqn(TaskBarIcon):
             subs = self.config['topic']
             for s in subs.iterkeys():
                 self.client.subscribe(s, subs[s].get('qos', 0))
+        self.mqtt_loop_check()
 
     def on_disconnect(self, c, u, r):
         if r > 0:
@@ -97,6 +119,7 @@ class Mqn(TaskBarIcon):
         else:
             self.mqtt_connected = False
             self.set_status("disconnected")
+        self.mqtt_loop_check()
 
     def on_notification(self, c, u, msg):
         try:
@@ -118,10 +141,13 @@ class Mqn(TaskBarIcon):
         """Method that sets a small status message next to the icon's name in the system tray.
 If status is an empty string (which is the default), then set the name of the icon to what this class was instantiated with.
         """
-        if status == '':
-            self.SetIcon(wx.NullIcon, self.icon_name)
-        else:
-            self.SetIcon(wx.NullIcon, """{}: {}""".format(self.icon_name, status))
+        try:
+            if status == '':
+                self.SetIcon(wx.NullIcon, self.icon_name)
+            else:
+                self.SetIcon(wx.NullIcon, """{}: {}""".format(self.icon_name, status))
+        except RuntimeError as e:
+            pass
 
     def open_website(self, event=None):
         webbrowser.open("https://github.com/oliver2213/mqn")
@@ -135,6 +161,7 @@ If status is an empty string (which is the default), then set the name of the ic
         wx.MessageDialog(parent=None, caption="config reloaded", message="The configuration file has been reloaded.").ShowModal()
 
     def on_exit(self, event=None):
+        self.mqtt_disconnect() # will only disconnect if it needs doing, and stops mqtt's loop as well if necessary
         wx.CallAfter(self.Destroy)
 
 def main():
@@ -150,8 +177,8 @@ def main():
         return
     finally:
         # gracefully disconnect, even if an exception is thrown
-        if m != None and getattr(m, 'client', False):
-            m.client.disconnect()
+        if m != None and getattr(m, 'client', False) and m.mqtt_connected==True: # if there is an mqn object, if it has an mqtt client, and it indicates that it is still connected to a broker
+            m.mqtt_disconnect()
 
 
 if __name__ == '__main__':
