@@ -1,7 +1,6 @@
 # a mqtt desktop notifier
 # author: Blake Oliver <oliver22213@me.com>
 
-import copy
 import json
 import os
 import webbrowser
