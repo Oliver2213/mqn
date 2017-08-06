@@ -41,16 +41,19 @@ certfile = 'C:\users\you\ssl_cert.pem' # note the use of '; use it when writing 
 keyfile = 'C:\users\you\ssl_key.pem'
 
 # at least one topic section is required
-[topic.notifications/laptop]
+
+# each topic is in it's own table, defined like [topic."your/topic/here"]
+# note that you must put the topic name in  quotes, like the following
+[topic."notifications/laptop"]
 # you can leave a topic section empty
 # or specify a qos (quality of service), which goes from 0 (no acknowledgment of messages) to 2 (make super sure that this client gets every message)
 # qos 0 is the default
 
 # you can also specify multiple topics, including wildcards
 # as long as your broker grants you access to what you try to subscribe to
-[topic.notifications/#]
+#[topic."notifications/#"]
 qos = 1
-[topic.mqn/+]
+[topic."mqn/+"]
 
 ```
 
