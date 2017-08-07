@@ -60,6 +60,9 @@ class Mqn(TaskBarIcon):
         if self.mqtt_connection_is_set_up == False or force==True:
             if reload==True: 
                 self.client.reinitialise() # is it me or is that misspelled 
+            self.mqtt_loop_check()
+            if self.mqtt_loop_running == True or self.mqtt_connected == True:
+                self.mqtt_disconnect()
             if self.config['mqtt'].get('username', None) != None:
                 if self.config['mqtt'].get('password', None) == None: # no password, just a username
                     self.client.username_pw_set(self.config['mqtt']['username'])
@@ -119,20 +122,28 @@ class Mqn(TaskBarIcon):
                 self.mqtt_disconnect()
                 self.ShowBalloon("Connection failed to {}".format(self.config['mqtt']['host']), connect_codes[r])
         else: # given code is unknown
+            self.mqtt_disconnect() # the previous call to this method only applies if the return code is from 0 to 5 (as there are no other codes on the constants dict)
             self.set_status("connection refused (reason unknown)")
+            self.ShowBalloon(title="Connection refused", text="The connection to {} was refused (reason unknown)".format(self.config['mqtt']['host']))
         if r == 0:
             self.mqtt_connected = True
             subs = self.config['topic']
             for s in subs.iterkeys():
                 self.client.subscribe(s, subs[s].get('qos', 0))
+        if self.config['mqn']['quiet'] == False:
+            self.ShowBalloon(title="Connected to mqtt broker", text="Connection established to {}".format(self.config['mqtt']['host']))
         self.mqtt_loop_check()
 
     def on_disconnect(self, c, u, r):
         if r > 0:
             self.set_status("disconnected unexpectedly, reconnecting soon")
+            if self.config['mqn']['quiet'] == False:
+                self.ShowBalloon(title="Unexpectedly disconnected from {}".format(self.config['mqtt']['host']), text="Connection to the mqtt broker has been lost; trying to reconnect soon.")
         else:
             self.mqtt_connected = False
             self.set_status("disconnected")
+            if self.config['mqn']['quiet'] == False:
+                self.ShowBalloon(title="Disconnected from mqtt broker", text="disconnected from {}".format(self.config['mqtt']['host']))
         self.mqtt_loop_check()
 
     def on_notification(self, c, u, msg):
@@ -179,12 +190,12 @@ If status is an empty string (which is the default), then set the name of the ic
         webbrowser.open("https://github.com/oliver2213/mqn")
 
     def open_config(self, event=None):
-        print(dir(event.GetEventType()))
         os.startfile(self.config_file)
 
     def reload_config(self, event=None):
         self.setup_config()
         # disconnect if necessary, stop the mqtt event loop, reset settings from config, and reconnect again
+        self.mqtt_disconnect()
         self.mqtt_setup_connection(force=True, reload=True)
         if self.config['mqn']['autoconnect'] == True:
             self.mqtt_connect()
