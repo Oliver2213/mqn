@@ -1,6 +1,10 @@
 # constants
 
 default_config = {
+ "mqn": {
+  "quiet": True,\
+  "autoconnect": True,\
+ },\
  "mqtt" : {
   "port" : 1883,\
   "keepalive" : 60,\

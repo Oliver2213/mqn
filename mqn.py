@@ -19,15 +19,16 @@ from constants import default_config, connect_codes
 class Mqn(TaskBarIcon):
     def __init__(self, icon_name):
         super(Mqn, self).__init__()
+        self.mqtt_connection_is_set_up = False
         self.mqtt_connected = False
         self.mqtt_loop_running = False
         self.icon_name = icon_name
         self.SetIcon(wx.NullIcon, self.icon_name)
         self.setup_config()
         self.client = client.Client()
-        self.client.on_connect = self.on_connect
-        self.client.on_disconnect = self.on_disconnect
-        self.mqtt_connect()
+        self.mqtt_setup_connection()
+        if self.config['mqn']['autoconnect'] == True:
+            self.mqtt_connect()
 
     def setup_config(self):
         self.user_config, self.config_file = utils.get_config()
@@ -54,30 +55,37 @@ class Mqn(TaskBarIcon):
             self.on_exit()
             return
 
-    def mqtt_connect(self, reload=False, start_loop=True):
+    def mqtt_setup_connection(self, force=False, reload=False):
+        """Configures the mqtt broker connection with options set in config (host, port, ssl and specific args, username and pw)."""
+        if self.mqtt_connection_is_set_up == False or force==True:
+            if reload==True: 
+                self.client.reinitialise() # is it me or is that misspelled 
+            if self.config['mqtt'].get('username', None) != None:
+                if self.config['mqtt'].get('password', None) == None: # no password, just a username
+                    self.client.username_pw_set(self.config['mqtt']['username'])
+                else: # username and pw
+                    self.client.username_pw_set(self.config['mqtt']['username'], self.config['mqtt']['password'])
+            if self.config['mqtt']['ssl'] == True: # ssl is enabled for this broker connection
+                tls = {}
+                if self.config['mqtt']['ca_certs'].lower() == "auto":
+                    tls['ca_certs'] = certifi.where()
+                if self.config['mqtt'].get('certfile', None) != None:
+                    tls['certfile'] = self.config['mqtt']['certfile']
+                if self.config['mqtt'].get('keyfile', None) != None:
+                    tls['keyfile'] = self.config['mqtt']['keyfile']
+                self.client.tls_set(**tls)
+            for sub in self.config['topic'].iterkeys():
+                self.client.message_callback_add(sub, self.on_notification)
+            self.mqtt_connection_is_set_up = True
+
+    def mqtt_connect(self, start_loop=True):
         """Establishes a connection to the mqtt broker specified in config, sets up subscription message handlers for all the specified topics, and starts the event processing loop for mqtt."""
+        if self.mqtt_connection_is_set_up == False:
+            self.mqtt_setup_connection()
+        if self.client.on_connect==None or self.client.on_disconnect==None:
+            self.mqtt_set_callbacks()
         if self.mqtt_connected or self.mqtt_loop_running:
             self.mqtt_disconnect()
-        if reload:
-            self.client.reinitialise() # is it me or is that misspelled 
-            self.client.on_connect = self.on_connect
-            self.client.on_disconnect = self.on_disconnect
-        if self.config['mqtt'].get('username', None) != None:
-            if self.config['mqtt'].get('password', None) == None: # no password, just a username
-                self.client.username_pw_set(self.config['mqtt']['username'])
-            else: # username and pw
-                self.client.username_pw_set(self.config['mqtt']['username'], self.config['mqtt']['password'])
-        if self.config['mqtt']['ssl'] == True: # ssl is enabled for this broker connection
-            tls = {}
-            if self.config['mqtt']['ca_certs'].lower() == "auto":
-                tls['ca_certs'] = certifi.where()
-            if self.config['mqtt'].get('certfile', None) != None:
-                tls['certfile'] = self.config['mqtt']['certfile']
-            if self.config['mqtt'].get('keyfile', None) != None:
-                tls['keyfile'] = self.config['mqtt']['keyfile']
-            self.client.tls_set(**tls)
-        for sub in self.config['topic'].iterkeys():
-            self.client.message_callback_add(sub, self.on_notification)
         self.client.connect(self.config['mqtt']['host'], self.config['mqtt']['port'], self.config['mqtt']['keepalive'])
         if start_loop:
             self.client.loop_start()
@@ -86,10 +94,14 @@ class Mqn(TaskBarIcon):
     def mqtt_loop_check(self):
         """Check to see if the mqtt event loop is alive, and set the value that reflects this on the class instance."""
         # maybe make this a property so checking self.mqtt_loop_running will run this?
-        if getattr(self.client, '_thread', False) == False: # the thread doesn't exist
+        if getattr(self.client, '_thread', False) == False or self.client._thread == None: # the thread doesn't exist
             self.mqtt_loop_running = False
         else: # a thread does exist, determine it's running status
             self.mqtt_loop_running = self.client._thread.is_alive()
+
+    def mqtt_set_callbacks(self):
+        self.client.on_connect = self.on_connect
+        self.client.on_disconnect = self.on_disconnect
 
     def mqtt_disconnect(self):
         """Disconnect from the mqtt broker if we're connected, and stop the mqtt event loop if it's running."""
@@ -133,6 +145,7 @@ class Mqn(TaskBarIcon):
 
     def CreatePopupMenu(self):
         menu = wx.Menu()
+        utils.create_menu_item(menu, "connect", self.do_menu_connect, kind=wx.ITEM_CHECK).Check(self.mqtt_connected) # if we're connected to the broker, this is checked
         utils.create_menu_item(menu, "open configuration file", self.open_config)
         utils.create_menu_item(menu, "&reload configuration file", self.reload_config)
         utils.create_menu_item(menu, "open mqn &website", self.open_website)
@@ -151,15 +164,30 @@ If status is an empty string (which is the default), then set the name of the ic
         except RuntimeError as e:
             pass
 
+    def do_menu_connect(self, event=None):
+        """Connect or disconnect from the configured mqtt broker."""
+        # no matter what the menu item's checked status says, this method will properly open or close a connection to the configured broker
+        # I do it this way because (unlikely though it is), the connection status can change while a menu is open;
+        # so if this method acts based on that, it could run connect (when there is already one established), and cause a reconnect, which would require another usage of this method to fix
+        # or it could run disconnect, when there is no connection to the broker, thus doing nothing
+        if self.mqtt_connected == True: # disconnect
+            self.mqtt_disconnect()
+        elif self.mqtt_connected == False: # connect
+            self.mqtt_connect()
+
     def open_website(self, event=None):
         webbrowser.open("https://github.com/oliver2213/mqn")
 
     def open_config(self, event=None):
+        print(dir(event.GetEventType()))
         os.startfile(self.config_file)
 
     def reload_config(self, event=None):
         self.setup_config()
-        self.mqtt_connect(reload=True) # disconnect if necessary, stop the mqtt event loop, reset settings from config, and reconnect again
+        # disconnect if necessary, stop the mqtt event loop, reset settings from config, and reconnect again
+        self.mqtt_setup_connection(force=True, reload=True)
+        if self.config['mqn']['autoconnect'] == True:
+            self.mqtt_connect()
         wx.MessageDialog(parent=None, caption="config reloaded", message="The configuration file has been reloaded and the connection to your configured mqtt broker is being reestablished according to the updated config.").ShowModal()
 
     def on_exit(self, event=None):
