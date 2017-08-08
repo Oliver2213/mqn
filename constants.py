@@ -4,6 +4,7 @@ default_config = {
  "mqn": {
   "quiet": True,\
   "autoconnect": True,\
+  "directed_notifications": False,\
  },\
  "mqtt" : {
   "port" : 1883,\

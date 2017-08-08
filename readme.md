@@ -19,6 +19,16 @@ quiet = true
 # If this is set to false, you will need to manually tell mqn to connect to your mqtt broker via the system tray menu.
 autoconnect = true
 
+# if there's a base topic all notification messages will be sent to, specify it here.
+# You can still specify any number of other topics, but if there is one topic a majority of messages will be sent to, use this option.
+# This option doesn't have a default value, so if you don't specify it in your config, it won't assume anything
+base_topic = "notifications"
+
+# Whether or not to subscribe to a topic with the name of the machine mqn is running on.
+# This uses base_topic, so with a machine name of "some-machine," and a base_topic of "notifications", mqn will subscribe to "notifications/some-machine".
+# This allows you to send notifications to any machine, as long as you know it's name and it's online.
+directed_notifications = false
+
 # mqtt options
 [mqtt]
 

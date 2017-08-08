@@ -49,8 +49,8 @@ class Mqn(TaskBarIcon):
             m.ShowModal()
             self.on_exit()
             return
-        if self.config.get('topic', None) == None:
-            m = wx.MessageDialog(parent=None, caption="No notification topics in config", message="No notification topics have been specified in the configuration file.\nYou must specify at least one topic for mqn to subscribe to.\nPlease do so, and then restart this program.")
+        if self.config.get('topic', None) == None and self.config['mqn'].get('base_topic', None) == None:
+            m = wx.MessageDialog(parent=None, caption="No notification topics in config", message="No notification topics have been specified in the configuration file, and no base topic was set.\nYou must specify at least one topic for mqn to subscribe to, or a bas _topic.\nPlease do so, and then restart this program.")
             m.ShowModal()
             self.on_exit()
             return
@@ -77,8 +77,17 @@ class Mqn(TaskBarIcon):
                 if self.config['mqtt'].get('keyfile', None) != None:
                     tls['keyfile'] = self.config['mqtt']['keyfile']
                 self.client.tls_set(**tls)
-            for sub in self.config['topic'].iterkeys():
-                self.client.message_callback_add(sub, self.on_notification)
+            if self.config['mqn'].get('base_topic', None) != None:
+                self.client.message_callback_add(self.config['mqn']['base_topic'], self.on_notification)
+                if self.config['mqn'].get('directed_notifications', False) == True:
+                    if self.config['mqn']['base_topic'].endswith('/'):
+                        m_topic = self.config['mqn']['base_topic']+gethostname().replace('+', '')
+                    else:
+                        m_topic = self.config['mqn']['base_topic']+'/'+gethostname().replace('+', '')
+                    self.client.message_callback_add(m_topic, self.on_notification)
+            if self.config.get('topic', None) != None:
+                for sub in self.config['topic'].iterkeys():
+                    self.client.message_callback_add(sub, self.on_notification)
             self.mqtt_connection_is_set_up = True
 
     def mqtt_connect(self, start_loop=True):
@@ -127,9 +136,17 @@ class Mqn(TaskBarIcon):
             self.ShowBalloon(title="Connection refused", text="The connection to {} was refused (reason unknown)".format(self.config['mqtt']['host']))
         if r == 0:
             self.mqtt_connected = True
-            subs = self.config['topic']
-            for s in subs.iterkeys():
-                self.client.subscribe(s, subs[s].get('qos', 0))
+            if self.config['mqn'].get('base_topic', None) != None:
+                self.client.subscribe(self.config['mqn']['base_topic'], 0)
+                if self.config['mqn'].get('directed_notifications', False) == True:
+                    if self.config['mqn']['base_topic'].endswith('/'):
+                        m_topic = self.config['mqn']['base_topic']+gethostname().replace('+', '')
+                    else:
+                        m_topic = self.config['mqn']['base_topic']+'/'+gethostname().replace('+', '')
+                    self.client.subscribe(m_topic, 0)
+            if self.config.get('topic', None) != None:
+                for s in self.config['topic'].iterkeys():
+                    self.client.subscribe(s, self.config['topic'][s].get('qos', 0))
         if self.config['mqn']['quiet'] == False:
             self.ShowBalloon(title="Connected to mqtt broker", text="Connection established to {}".format(self.config['mqtt']['host']))
         self.mqtt_loop_check()
