@@ -22,6 +22,7 @@ class Mqn(TaskBarIcon):
         self.mqtt_connection_is_set_up = False
         self.mqtt_connected = False
         self.mqtt_loop_running = False
+        self.muted = False
         self.icon_name = icon_name
         self.SetIcon(wx.NullIcon, self.icon_name)
         self.setup_config()
@@ -129,11 +130,13 @@ class Mqn(TaskBarIcon):
             self.set_status(connect_codes[r])
             if r > 0:
                 self.mqtt_disconnect()
-                self.ShowBalloon("Connection failed to {}".format(self.config['mqtt']['host']), connect_codes[r])
+                if self.muted == False:
+                    self.ShowBalloon("Connection failed to {}".format(self.config['mqtt']['host']), connect_codes[r])
         else: # given code is unknown
             self.mqtt_disconnect() # the previous call to this method only applies if the return code is from 0 to 5 (as there are no other codes on the constants dict)
             self.set_status("connection refused (reason unknown)")
-            self.ShowBalloon(title="Connection refused", text="The connection to {} was refused (reason unknown)".format(self.config['mqtt']['host']))
+            if self.muted == False:
+                self.ShowBalloon(title="Connection refused", text="The connection to {} was refused (reason unknown)".format(self.config['mqtt']['host']))
         if r == 0:
             self.mqtt_connected = True
             if self.config['mqn'].get('base_topic', None) != None:
@@ -147,26 +150,26 @@ class Mqn(TaskBarIcon):
             if self.config.get('topic', None) != None:
                 for s in self.config['topic'].iterkeys():
                     self.client.subscribe(s, self.config['topic'][s].get('qos', 0))
-        if self.config['mqn']['quiet'] == False:
+        if self.config['mqn']['quiet'] == False and self.muted == False:
             self.ShowBalloon(title="Connected to mqtt broker", text="Connection established to {}".format(self.config['mqtt']['host']))
         self.mqtt_loop_check()
 
     def on_disconnect(self, c, u, r):
         if r > 0:
             self.set_status("disconnected unexpectedly, reconnecting soon")
-            if self.config['mqn']['quiet'] == False:
+            if self.config['mqn']['quiet'] == False and self.muted == False:
                 self.ShowBalloon(title="Unexpectedly disconnected from {}".format(self.config['mqtt']['host']), text="Connection to the mqtt broker has been lost; trying to reconnect soon.")
         else:
             self.mqtt_connected = False
             self.set_status("disconnected")
-            if self.config['mqn']['quiet'] == False:
+            if self.config['mqn']['quiet'] == False and self.muted==False:
                 self.ShowBalloon(title="Disconnected from mqtt broker", text="disconnected from {}".format(self.config['mqtt']['host']))
         self.mqtt_loop_check()
 
     def on_notification(self, c, u, msg):
         try:
             m = json.loads(msg.payload)
-            if m.get('type', None) == 'notification' and m.get('title', False) and m.get('message', False):
+            if m.get('type', None) == 'notification' and m.get('title', False) and m.get('message', False) and self.muted == False:
                 self.ShowBalloon(m['title'], m['message'])
         except ValueError as e:
             pass # not a valid mqn message
@@ -174,6 +177,7 @@ class Mqn(TaskBarIcon):
     def CreatePopupMenu(self):
         menu = wx.Menu()
         utils.create_menu_item(menu, "connect", self.do_menu_connect, kind=wx.ITEM_CHECK).Check(self.mqtt_connected) # if we're connected to the broker, this is checked
+        utils.create_menu_item(menu, "mute notifications", self.toggle_mute, kind=wx.ITEM_CHECK).Check(self.muted)
         utils.create_menu_item(menu, "open configuration file", self.open_config)
         utils.create_menu_item(menu, "&reload configuration file", self.reload_config)
         utils.create_menu_item(menu, "open mqn &website", self.open_website)
@@ -202,6 +206,12 @@ If status is an empty string (which is the default), then set the name of the ic
             self.mqtt_disconnect()
         elif self.mqtt_connected == False: # connect
             self.mqtt_connect()
+
+    def toggle_mute(self, event):
+        item = event.GetEventObject().FindItemById(event.GetId())
+        print("Label is:", item.GetLabel())
+        self.muted = not self.muted
+        print("Muted is now ", self.muted)
 
     def open_website(self, event=None):
         webbrowser.open("https://github.com/oliver2213/mqn")
