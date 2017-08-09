@@ -61,7 +61,7 @@ ca_certs = "auto"
 certfile = 'C:\users\you\ssl_cert.pem' # note the use of '; use it when writing windows paths so backslashes are treated normally
 keyfile = 'C:\users\you\ssl_key.pem'
 
-# at least one topic section is required.
+# at least one topic section is required if base_topic isn't set.
 # each topic is in it's own table, defined like [topic."your/topic/here"].
 # note that you must put the topic name in  quotes, like the following.
 [topic."notifications/laptop"]
