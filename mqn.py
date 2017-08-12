@@ -55,6 +55,20 @@ class Mqn(TaskBarIcon):
             m.ShowModal()
             self.on_exit()
             return
+        # all verification checks have passed
+        self.mqtt_subscriptions = {}
+        self.mqtt_message_ids = {}
+        if self.config['mqn'].get('base_topic', None) != None:
+            self.mqtt_subscriptions[self.config['mqn']['base_topic']] = {"subscribed": False}
+            if self.config['mqn'].get('directed_notifications', False) == True:
+                if self.config['mqn']['base_topic'].endswith('/'):
+                    m_topic = self.config['mqn']['base_topic']+gethostname().replace('+', '')
+                else:
+                    m_topic = self.config['mqn']['base_topic']+'/'+gethostname().replace('+', '')
+                self.mqtt_subscriptions[m_topic] = {"subscribed": False}
+        if self.config.get('topic', None) != None:
+            for sub in self.config['topic'].iterkeys():
+                self.mqtt_subscriptions[sub] = {"subscribed": False, "qos": sub.get('qos', 0)}
 
     def mqtt_setup_connection(self, force=False, reload=False):
         """Configures the mqtt broker connection with options set in config (host, port, ssl and specific args, username and pw)."""
@@ -78,16 +92,8 @@ class Mqn(TaskBarIcon):
                 if self.config['mqtt'].get('keyfile', None) != None:
                     tls['keyfile'] = self.config['mqtt']['keyfile']
                 self.client.tls_set(**tls)
-            if self.config['mqn'].get('base_topic', None) != None:
-                self.client.message_callback_add(self.config['mqn']['base_topic'], self.on_notification)
-                if self.config['mqn'].get('directed_notifications', False) == True:
-                    if self.config['mqn']['base_topic'].endswith('/'):
-                        m_topic = self.config['mqn']['base_topic']+gethostname().replace('+', '')
-                    else:
-                        m_topic = self.config['mqn']['base_topic']+'/'+gethostname().replace('+', '')
-                    self.client.message_callback_add(m_topic, self.on_notification)
             if self.config.get('topic', None) != None:
-                for sub in self.config['topic'].iterkeys():
+                for sub in self.mqtt_subscriptions.iterkeys():
                     self.client.message_callback_add(sub, self.on_notification)
             self.mqtt_connection_is_set_up = True
 
@@ -115,6 +121,8 @@ class Mqn(TaskBarIcon):
     def mqtt_set_callbacks(self):
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
+        self.client.on_subscribe = self.on_subscribe
+        self.client.on_unsubscribe = self.on_unsubscribe
 
     def mqtt_disconnect(self):
         """Disconnect from the mqtt broker if we're connected, and stop the mqtt event loop if it's running."""
@@ -139,17 +147,10 @@ class Mqn(TaskBarIcon):
                 self.ShowBalloon(title="Connection refused", text="The connection to {} was refused (reason unknown)".format(self.config['mqtt']['host']))
         if r == 0:
             self.mqtt_connected = True
-            if self.config['mqn'].get('base_topic', None) != None:
-                self.client.subscribe(self.config['mqn']['base_topic'], 0)
-                if self.config['mqn'].get('directed_notifications', False) == True:
-                    if self.config['mqn']['base_topic'].endswith('/'):
-                        m_topic = self.config['mqn']['base_topic']+gethostname().replace('+', '')
-                    else:
-                        m_topic = self.config['mqn']['base_topic']+'/'+gethostname().replace('+', '')
-                    self.client.subscribe(m_topic, 0)
-            if self.config.get('topic', None) != None:
-                for s in self.config['topic'].iterkeys():
-                    self.client.subscribe(s, self.config['topic'][s].get('qos', 0))
+            for subname, sub in self.mqtt_subscriptions.iteritems():
+                r, mid = self.client.subscribe(subname, sub.get('qos', 0))
+                # save the message ID we got for this request, so later on we can mark the specific topic as subscribed or not.
+                self.mqtt_message_ids[mid] = [subname]
         if self.config['mqn']['quiet'] == False and self.muted == False:
             self.ShowBalloon(title="Connected to mqtt broker", text="Connection established to {}".format(self.config['mqtt']['host']))
         self.mqtt_loop_check()
@@ -166,6 +167,20 @@ class Mqn(TaskBarIcon):
                 self.ShowBalloon(title="Disconnected from mqtt broker", text="disconnected from {}".format(self.config['mqtt']['host']))
         self.mqtt_loop_check()
 
+    def on_subscribe(self, c, u, mid, qos):
+        """Callback that gets called when a requested subscription is granted by the broker. Updates a dict so other code can check the subscribed status of topics."""
+        subs = self.mqtt_message_ids[mid]
+        for sub in subs:
+            self.mqtt_subscriptions[sub]['subscribed']= True
+        del(self.mqtt_message_ids[mid]) # acknowledged, no need to waist space
+
+    def on_unsubscribe(self, c, u, mid):
+        """Callback that gets called when an unsubscribe request is granted by the broker. Updates a dict so other code can check the subscribed status of topics."""
+        subs = self.mqtt_message_ids[mid]
+        for sub in subs:
+            self.mqtt_subscriptions[sub]['subscribed'] = False
+        del(self.mqtt_message_ids[mid])
+
     def on_notification(self, c, u, msg):
         try:
             m = json.loads(msg.payload)
@@ -178,6 +193,11 @@ class Mqn(TaskBarIcon):
         menu = wx.Menu()
         utils.create_menu_item(menu, "connect", self.do_menu_connect, kind=wx.ITEM_CHECK).Check(self.mqtt_connected) # if we're connected to the broker, this is checked
         utils.create_menu_item(menu, "mute notifications", self.toggle_mute, kind=wx.ITEM_CHECK).Check(self.muted)
+        topics_submenu = wx.Menu()
+        for subname, sub in self.mqtt_subscriptions.iteritems():
+            utils.create_menu_item(topics_submenu, subname, self.toggle_subscription, bind_to=menu, kind=wx.ITEM_CHECK).Check(sub['subscribed'])
+        # (didn't work) menu.Append(id=wx.ID_ANY, subMenu=topics_submenu, item="topics")
+        menu.AppendSubMenu(topics_submenu, "topics")
         utils.create_menu_item(menu, "open configuration file", self.open_config)
         utils.create_menu_item(menu, "&reload configuration file", self.reload_config)
         utils.create_menu_item(menu, "open mqn &website", self.open_website)
@@ -208,10 +228,16 @@ If status is an empty string (which is the default), then set the name of the ic
             self.mqtt_connect()
 
     def toggle_mute(self, event):
-        item = event.GetEventObject().FindItemById(event.GetId())
-        print("Label is:", item.GetLabel())
         self.muted = not self.muted
-        print("Muted is now ", self.muted)
+
+    def toggle_subscription(self, event):
+        sub = event.GetEventObject().FindItemById(event.GetId()).GetItemLabelText()
+        if self.mqtt_subscriptions[sub]['subscribed'] == True:
+            r, mid = self.client.unsubscribe(sub)
+            self.mqtt_message_ids[mid] = [sub]
+        elif self.mqtt_subscriptions[sub]['subscribed'] == False:
+            r, mid = self.client.subscribe(sub, self.mqtt_subscriptions[sub].get('qos', 0))
+            self.mqtt_message_ids[mid] = [sub]
 
     def open_website(self, event=None):
         webbrowser.open("https://github.com/oliver2213/mqn")

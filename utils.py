@@ -6,7 +6,7 @@ import wx
 import appdirs
 import pytoml as toml
 
-def create_menu_item(menu, label, func, id=None, help="", kind=wx.ITEM_NORMAL):
+def create_menu_item(menu, label, func, id=None, help="", kind=wx.ITEM_NORMAL, bind_to=None):
     """A quick function to add and bind a menu item.
             The point of this is to provide a wrapper around WX and be called by the application with all the arguments it needs (and with defaults that you can just not worry about if you don't need them). It will also handle binding to a menu event.
             This can be used for menubars, system tray icons, etc.
@@ -23,7 +23,10 @@ def create_menu_item(menu, label, func, id=None, help="", kind=wx.ITEM_NORMAL):
     if id is None:
         id = wx.ID_ANY
     item = wx.MenuItem(menu, id, label, help, kind)
-    menu.Bind(wx.EVT_MENU, func, id=item.GetId())
+    if bind_to == None: # bind to the menu by default
+        menu.Bind(wx.EVT_MENU, func, id=item.GetId())
+    else:
+        bind_to.Bind(wx.EVT_MENU, func, id=item.GetId())
     menu.Append(item)
     return item
 
