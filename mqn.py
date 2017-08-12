@@ -147,10 +147,14 @@ class Mqn(TaskBarIcon):
                 self.ShowBalloon(title="Connection refused", text="The connection to {} was refused (reason unknown)".format(self.config['mqtt']['host']))
         if r == 0:
             self.mqtt_connected = True
+            # build a list of tuples of the form (subscription, qos)
+            # this helps consolidate what could be many subscriptions into just one request, rather than firing off each sub individually
+            subtuples = []
             for subname, sub in self.mqtt_subscriptions.iteritems():
-                r, mid = self.client.subscribe(subname, sub.get('qos', 0))
-                # save the message ID we got for this request, so later on we can mark the specific topic as subscribed or not.
-                self.mqtt_message_ids[mid] = [subname]
+                subtuples.append((subname, sub.get('qos', 0)))
+            r, mid = self.client.subscribe(subtuples)
+            # save the message ID we got for this request, so later on we can mark the specific topic(s) as subscribed or not.
+            self.mqtt_message_ids[mid] = [st[0] for st in subtuples] # build a list of just the subscriptions, not their qos values
         if self.config['mqn']['quiet'] == False and self.muted == False:
             self.ShowBalloon(title="Connected to mqtt broker", text="Connection established to {}".format(self.config['mqtt']['host']))
         self.mqtt_loop_check()
@@ -196,8 +200,7 @@ class Mqn(TaskBarIcon):
         topics_submenu = wx.Menu()
         for subname, sub in self.mqtt_subscriptions.iteritems():
             utils.create_menu_item(topics_submenu, subname, self.toggle_subscription, bind_to=menu, kind=wx.ITEM_CHECK).Check(sub['subscribed'])
-        # (didn't work) menu.Append(id=wx.ID_ANY, subMenu=topics_submenu, item="topics")
-        menu.AppendSubMenu(topics_submenu, "topics")
+        menu.AppendSubMenu(topics_submenu, "topics").Enable(self.mqtt_connected)
         utils.create_menu_item(menu, "open configuration file", self.open_config)
         utils.create_menu_item(menu, "&reload configuration file", self.reload_config)
         utils.create_menu_item(menu, "open mqn &website", self.open_website)
