@@ -68,7 +68,7 @@ class Mqn(TaskBarIcon):
                 self.mqtt_subscriptions[m_topic] = {"subscribed": False}
         if self.config.get('topic', None) != None:
             for sub in self.config['topic'].iterkeys():
-                self.mqtt_subscriptions[sub] = {"subscribed": False, "qos": sub.get('qos', 0)}
+                self.mqtt_subscriptions[sub] = {"subscribed": False, "qos": self.config['topic'][sub].get('qos', 0)}
 
     def mqtt_setup_connection(self, force=False, reload=False):
         """Configures the mqtt broker connection with options set in config (host, port, ssl and specific args, username and pw)."""
